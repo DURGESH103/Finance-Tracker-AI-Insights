@@ -10,9 +10,10 @@ interface StatCardProps {
   icon: React.ReactNode;
   gradient: string;
   delay?: number;
+  subtitle?: string;
 }
 
-export default function StatCard({ title, amount, change, icon, gradient, delay = 0 }: StatCardProps) {
+export default function StatCard({ title, amount, change, icon, gradient, delay = 0, subtitle }: StatCardProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -34,6 +35,9 @@ export default function StatCard({ title, amount, change, icon, gradient, delay 
             {change >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
             {Math.abs(change).toFixed(1)}% vs last month
           </div>
+        )}
+        {subtitle && !change && (
+          <p className="text-gray-500 text-xs mt-2">{subtitle}</p>
         )}
       </div>
     </motion.div>

@@ -3,15 +3,21 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useTransactionStore } from '@/store/transactionStore';
 import { useFinanceStore } from '@/store/financeStore';
+import { useGoalStore } from '@/store/goalStore';
 import { useAuthStore } from '@/store/authStore';
 import StatCard from '@/components/ui/StatCard';
 import TransactionList from '@/components/ui/TransactionList';
 import InsightsCard from '@/components/dashboard/InsightsCard';
 import BudgetProgress from '@/components/dashboard/BudgetProgress';
+import FinancialHealthScore from '@/components/dashboard/FinancialHealthScore';
+import GoalsTracker from '@/components/dashboard/GoalsTracker';
+import GamificationCard from '@/components/dashboard/GamificationCard';
+import SubscriptionCard from '@/components/dashboard/SubscriptionCard';
 import Modal from '@/components/ui/Modal';
 import AddTransactionForm from '@/components/ui/AddTransactionForm';
+import AddGoalForm from '@/components/ui/AddGoalForm';
 import { formatCurrency } from '@/lib/constants';
-import { TrendingUp, TrendingDown, Wallet, Plus, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Plus, Sparkles, PiggyBank, Activity } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts';
@@ -19,15 +25,33 @@ import {
 export default function DashboardPage() {
   const { user } = useAuthStore();
   const { transactions, analytics, fetchTransactions, fetchAnalytics, deleteTransaction } = useTransactionStore();
-  const { budgets, insights, fetchBudgets, fetchInsights, refreshInsights } = useFinanceStore();
-  const [addOpen, setAddOpen] = useState(false);
+  const {
+    budgets, insights, healthScore, gamification, subscriptions, patterns,
+    fetchBudgets, fetchInsights, refreshInsights,
+    fetchHealthScore, fetchGamification,
+    fetchSubscriptions, detectSubscriptions,
+    fetchPatterns,
+  } = useFinanceStore();
+  const { goals, fetchGoals } = useGoalStore();
+
+  const [addTxOpen, setAddTxOpen] = useState(false);
+  const [addGoalOpen, setAddGoalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+  const [scoreLoading, setScoreLoading] = useState(false);
 
   useEffect(() => {
     fetchTransactions({ limit: 10 });
     fetchAnalytics();
     fetchBudgets();
     fetchInsights();
+    fetchGoals();
+    fetchSubscriptions();
+
+    setScoreLoading(true);
+    fetchHealthScore().finally(() => setScoreLoading(false));
+    fetchGamification();
+    fetchPatterns();
   }, []);
 
   const currentIncome = analytics?.currentMonthSummary.find((s) => s._id === 'income')?.total || 0;
@@ -35,20 +59,22 @@ export default function DashboardPage() {
   const lastIncome = analytics?.lastMonthSummary.find((s) => s._id === 'income')?.total || 0;
   const lastExpense = analytics?.lastMonthSummary.find((s) => s._id === 'expense')?.total || 0;
   const balance = currentIncome - currentExpense;
+  const savingsRate = currentIncome > 0 ? ((balance / currentIncome) * 100).toFixed(1) : '0';
 
   const incomeChange = lastIncome ? ((currentIncome - lastIncome) / lastIncome) * 100 : 0;
   const expenseChange = lastExpense ? ((currentExpense - lastExpense) / lastExpense) * 100 : 0;
 
-  // Build chart data from monthlyTrend
   const chartData = (() => {
     const map: Record<string, { month: string; income: number; expense: number }> = {};
     analytics?.monthlyTrend.forEach(({ _id, total }) => {
-      const key = `${_id.year}-${_id.month}`;
+      const key = `${_id.year}-${String(_id.month).padStart(2, '0')}`;
       if (!map[key]) map[key] = { month: `${_id.month}/${_id.year}`, income: 0, expense: 0 };
       map[key][_id.type as 'income' | 'expense'] = total;
     });
-    return Object.values(map);
+    return Object.values(map).sort((a, b) => a.month.localeCompare(b.month));
   })();
+
+  const greeting = new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening';
 
   const handleRefreshInsights = async () => {
     setRefreshing(true);
@@ -56,33 +82,46 @@ export default function DashboardPage() {
     setRefreshing(false);
   };
 
+  const handleDetectSubs = async () => {
+    setDetecting(true);
+    await detectSubscriptions();
+    setDetecting(false);
+  };
+
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between">
         <div>
           <motion.h1
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             className="text-2xl font-bold text-white"
           >
-            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'},{' '}
-            <span className="text-violet-400">{user?.name?.split(' ')[0]}</span> 👋
+            Good {greeting},{' '}
+            <span className="bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
+              {user?.name?.split(' ')[0]}
+            </span>{' '}
+            👋
           </motion.h1>
-          <p className="text-gray-500 text-sm mt-1">Here's your financial overview</p>
+          <p className="text-gray-500 text-sm mt-1">
+            Savings rate this month:{' '}
+            <span className={`font-medium ${Number(savingsRate) >= 20 ? 'text-emerald-400' : Number(savingsRate) >= 10 ? 'text-yellow-400' : 'text-red-400'}`}>
+              {savingsRate}%
+            </span>
+          </p>
         </div>
         <motion.button
           whileTap={{ scale: 0.95 }}
-          onClick={() => setAddOpen(true)}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
+          onClick={() => setAddTxOpen(true)}
+          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-lg shadow-violet-500/20"
         >
-          <Plus size={16} />
-          Add Transaction
+          <Plus size={16} /> Add Transaction
         </motion.button>
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Balance"
           amount={balance}
@@ -106,18 +145,33 @@ export default function DashboardPage() {
           gradient="bg-gradient-to-br from-red-600 to-rose-600"
           delay={0.1}
         />
+        <StatCard
+          title="Saved This Month"
+          amount={Math.max(0, balance)}
+          icon={<PiggyBank size={18} className="text-pink-400" />}
+          gradient="bg-gradient-to-br from-pink-600 to-rose-600"
+          delay={0.15}
+          subtitle={`${savingsRate}% savings rate`}
+        />
       </div>
 
-      {/* Chart + Insights */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        {/* Area Chart */}
+      {/* Chart + AI Insights */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
+          transition={{ delay: 0.2 }}
           className="lg:col-span-2 bg-white/5 border border-white/8 rounded-2xl p-5"
         >
-          <h3 className="text-white font-semibold text-sm mb-4">Income vs Expenses</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-semibold text-sm">Income vs Expenses</h3>
+            {patterns && (
+              <span className="text-gray-500 text-xs flex items-center gap-1">
+                <Activity size={12} />
+                Peak: {patterns.peakSpendingDay}s
+              </span>
+            )}
+          </div>
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={chartData}>
               <defs>
@@ -132,7 +186,7 @@ export default function DashboardPage() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
+              <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
               <Tooltip
                 contentStyle={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }}
                 labelStyle={{ color: '#9ca3af' }}
@@ -144,9 +198,18 @@ export default function DashboardPage() {
           </ResponsiveContainer>
         </motion.div>
 
-        {/* AI Insights */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <InsightsCard insights={insights} onRefresh={handleRefreshInsights} loading={refreshing} />
+        </motion.div>
+      </div>
+
+      {/* Health Score + Gamification */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <FinancialHealthScore score={healthScore} loading={scoreLoading} />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+          <GamificationCard data={gamification} />
         </motion.div>
       </div>
 
@@ -155,7 +218,7 @@ export default function DashboardPage() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
+          transition={{ delay: 0.4 }}
           className="lg:col-span-2 bg-white/5 border border-white/8 rounded-2xl p-5"
         >
           <div className="flex items-center justify-between mb-4">
@@ -168,7 +231,7 @@ export default function DashboardPage() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: 0.45 }}
           className="bg-white/5 border border-white/8 rounded-2xl p-5"
         >
           <div className="flex items-center justify-between mb-4">
@@ -179,8 +242,26 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Transaction">
-        <AddTransactionForm onSuccess={() => { setAddOpen(false); fetchAnalytics(); }} />
+      {/* Goals + Subscriptions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+          <GoalsTracker goals={goals} onAdd={() => setAddGoalOpen(true)} />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }}>
+          <SubscriptionCard
+            subscriptions={subscriptions}
+            onDetect={handleDetectSubs}
+            detecting={detecting}
+          />
+        </motion.div>
+      </div>
+
+      {/* Modals */}
+      <Modal open={addTxOpen} onClose={() => setAddTxOpen(false)} title="Add Transaction">
+        <AddTransactionForm onSuccess={() => { setAddTxOpen(false); fetchAnalytics(); fetchBudgets(); }} />
+      </Modal>
+      <Modal open={addGoalOpen} onClose={() => setAddGoalOpen(false)} title="Create Saving Goal">
+        <AddGoalForm onSuccess={() => setAddGoalOpen(false)} />
       </Modal>
     </div>
   );

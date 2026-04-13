@@ -10,9 +10,17 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   googleAuth: (data: { googleId: string; email: string; name: string; avatar?: string }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   fetchMe: () => Promise<void>;
 }
+
+const setToken = (token: string) => {
+  if (typeof window !== 'undefined') localStorage.setItem('ft_token', token);
+};
+
+const clearToken = () => {
+  if (typeof window !== 'undefined') localStorage.removeItem('ft_token');
+};
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -23,32 +31,37 @@ export const useAuthStore = create<AuthState>()(
 
       login: async (email, password) => {
         const { data } = await api.post('/auth/login', { email, password });
-        localStorage.setItem('ft_token', data.token);
-        set({ token: data.token, user: data.user });
+        const token = data.accessToken ?? data.token;
+        setToken(token);
+        set({ token, user: data.user });
       },
 
       register: async (name, email, password) => {
         const { data } = await api.post('/auth/register', { name, email, password });
-        localStorage.setItem('ft_token', data.token);
-        set({ token: data.token, user: data.user });
+        const token = data.accessToken ?? data.token;
+        setToken(token);
+        set({ token, user: data.user });
       },
 
       googleAuth: async (payload) => {
         const { data } = await api.post('/auth/google', payload);
-        localStorage.setItem('ft_token', data.token);
-        set({ token: data.token, user: data.user });
+        const token = data.accessToken ?? data.token;
+        setToken(token);
+        set({ token, user: data.user });
       },
 
-      logout: () => {
-        localStorage.removeItem('ft_token');
+      logout: async () => {
+        try { await api.post('/auth/logout'); } catch { /* ignore */ }
+        clearToken();
         set({ user: null, token: null });
       },
 
       fetchMe: async () => {
         try {
           const { data } = await api.get('/auth/me');
-          set({ user: data });
+          set({ user: data.user ?? data });
         } catch {
+          clearToken();
           set({ user: null, token: null });
         }
       },

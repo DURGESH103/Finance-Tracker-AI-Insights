@@ -1,21 +1,34 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useTransactionStore } from '@/store/transactionStore';
 import { useFinanceStore } from '@/store/financeStore';
 import { CATEGORY_META, CHART_COLORS, formatCurrency } from '@/lib/constants';
 import { motion } from 'framer-motion';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, LineChart, Line,
 } from 'recharts';
+
+const CustomTooltip = ({ active, payload }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-[#13131f] border border-white/10 rounded-xl p-3 text-xs">
+      <p className="text-gray-400 mb-1">{payload[0].name || payload[0].dataKey}</p>
+      <p className="text-white font-semibold">{formatCurrency(payload[0].value)}</p>
+    </div>
+  );
+};
 
 export default function AnalyticsPage() {
   const { analytics, fetchAnalytics } = useTransactionStore();
-  const { prediction, fetchPrediction } = useFinanceStore();
+  const { prediction, fetchPrediction, patterns, fetchPatterns, netWorthHistory, fetchNetWorth } = useFinanceStore();
 
   useEffect(() => {
     fetchAnalytics();
     fetchPrediction();
+    fetchPatterns();
+    fetchNetWorth();
   }, []);
 
   const pieData = analytics?.categoryBreakdown.map((c) => ({
@@ -34,30 +47,26 @@ export default function AnalyticsPage() {
     return Object.values(map).sort((a, b) => a.month.localeCompare(b.month));
   })();
 
+  // Savings rate trend from monthly data
+  const savingsTrend = barData.map((m) => ({
+    month: m.month,
+    rate: m.income > 0 ? Math.round(((m.income - m.expense) / m.income) * 100) : 0,
+  }));
+
   const currentIncome = analytics?.currentMonthSummary.find((s) => s._id === 'income')?.total || 0;
   const currentExpense = analytics?.currentMonthSummary.find((s) => s._id === 'expense')?.total || 0;
   const savings = currentIncome - currentExpense;
   const savingsPct = currentIncome ? ((savings / currentIncome) * 100).toFixed(1) : '0';
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (!active || !payload?.length) return null;
-    return (
-      <div className="bg-[#13131f] border border-white/10 rounded-xl p-3 text-xs">
-        <p className="text-gray-400 mb-1">{payload[0].name}</p>
-        <p className="text-white font-semibold">{formatCurrency(payload[0].value)}</p>
-      </div>
-    );
-  };
-
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="mb-8">
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div>
         <h1 className="text-2xl font-bold text-white">Analytics</h1>
-        <p className="text-gray-500 text-sm mt-1">Deep dive into your spending patterns</p>
+        <p className="text-gray-500 text-sm mt-1">Deep dive into your financial patterns</p>
       </div>
 
       {/* Summary row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Income', value: currentIncome, color: 'text-emerald-400' },
           { label: 'Expenses', value: currentExpense, color: 'text-red-400' },
@@ -80,9 +89,8 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
-      {/* Charts row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        {/* Pie chart */}
+      {/* Pie + Bar */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -99,11 +107,7 @@ export default function AnalyticsPage() {
                   ))}
                 </Pie>
                 <Tooltip content={<CustomTooltip />} />
-                <Legend
-                  formatter={(value) => <span className="text-gray-400 text-xs capitalize">{value}</span>}
-                  iconType="circle"
-                  iconSize={8}
-                />
+                <Legend formatter={(v) => <span className="text-gray-400 text-xs capitalize">{v}</span>} iconType="circle" iconSize={8} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -111,7 +115,6 @@ export default function AnalyticsPage() {
           )}
         </motion.div>
 
-        {/* Bar chart */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -123,11 +126,8 @@ export default function AnalyticsPage() {
             <BarChart data={barData} barSize={14}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
-              <Tooltip
-                contentStyle={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }}
-                formatter={(v) => [`₹${Number(v).toLocaleString()}`, '']}
-              />
+              <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+              <Tooltip contentStyle={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }} formatter={(v) => [`₹${Number(v).toLocaleString()}`, '']} />
               <Bar dataKey="income" fill="#10b981" radius={[4, 4, 0, 0]} name="Income" />
               <Bar dataKey="expense" fill="#ef4444" radius={[4, 4, 0, 0]} name="Expense" />
             </BarChart>
@@ -135,11 +135,97 @@ export default function AnalyticsPage() {
         </motion.div>
       </div>
 
+      {/* Net Worth + Savings Rate */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-white/5 border border-white/8 rounded-2xl p-5"
+        >
+          <h3 className="text-white font-semibold text-sm mb-4">Net Worth Trend</h3>
+          {netWorthHistory.length ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={netWorthHistory}>
+                <defs>
+                  <linearGradient id="nw" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+                <Tooltip contentStyle={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }} formatter={(v) => [`₹${Number(v).toLocaleString()}`, 'Net Worth']} />
+                <Area type="monotone" dataKey="netWorth" stroke="#6366f1" strokeWidth={2} fill="url(#nw)" name="Net Worth" />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-gray-500 text-sm text-center py-16">Not enough data yet</p>
+          )}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="bg-white/5 border border-white/8 rounded-2xl p-5"
+        >
+          <h3 className="text-white font-semibold text-sm mb-4">Savings Rate Trend (%)</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={savingsTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
+              <Tooltip contentStyle={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }} formatter={(v) => [`${v}%`, 'Savings Rate']} />
+              <Line type="monotone" dataKey="rate" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} name="Savings Rate" />
+            </LineChart>
+          </ResponsiveContainer>
+        </motion.div>
+      </div>
+
+      {/* Day-of-week spending pattern */}
+      {patterns && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="bg-white/5 border border-white/8 rounded-2xl p-5"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-semibold text-sm">Spending by Day of Week</h3>
+            <div className="flex gap-4 text-xs text-gray-500">
+              <span>Weekend: {formatCurrency(patterns.weekendVsWeekday.weekend)}</span>
+              <span>Weekday: {formatCurrency(patterns.weekendVsWeekday.weekday)}</span>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={patterns.dowBreakdown} barSize={28}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="day" tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+              <Tooltip contentStyle={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }} formatter={(v) => [`₹${Number(v).toLocaleString()}`, 'Spent']} />
+              <Bar dataKey="amount" radius={[4, 4, 0, 0]}>
+                {patterns.dowBreakdown.map((entry, i) => (
+                  <Cell
+                    key={i}
+                    fill={entry.day === patterns.peakSpendingDay ? '#ef4444' : '#6366f1'}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="text-gray-500 text-xs mt-2 text-center">
+            🔴 Peak spending day: <span className="text-red-400 font-medium">{patterns.peakSpendingDay}</span>
+          </p>
+        </motion.div>
+      )}
+
       {/* Category breakdown table */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: 0.45 }}
         className="bg-white/5 border border-white/8 rounded-2xl p-5"
       >
         <h3 className="text-white font-semibold text-sm mb-4">Category Breakdown</h3>
